@@ -16,16 +16,7 @@ import {
   AccountingStats,
   PaymentMethod,
 } from '../types';
-import {
-  INITIAL_PRODUCTS,
-  INITIAL_VARIANTS,
-  INITIAL_CUSTOMERS,
-  INITIAL_DESIGNS,
-  INITIAL_ORDERS,
-  INITIAL_PAYMENTS,
-  INITIAL_STOCK_MOVEMENTS,
-  INITIAL_EXPENSES,
-} from '../data/initialData';
+import { AppData, CollectionKey, SyncStatus, useCloudSync } from '../lib/cloudStore';
 
 const STORAGE_KEY = 'atelier_custom_data_v2';
 
@@ -50,10 +41,81 @@ const safeSaveToStorage = (key: string, data: unknown): boolean => {
   }
 };
 
+const LOCAL_SUFFIX: Record<CollectionKey, string> = {
+  products: 'products',
+  variants: 'variants',
+  customers: 'customers',
+  designs: 'designs',
+  orders: 'orders',
+  payments: 'payments',
+  stockMovements: 'stock_movements',
+  expenses: 'expenses',
+};
+
+const readLocalArray = (suffix: string): any[] => {
+  try {
+    const saved = localStorage.getItem(`${STORAGE_KEY}_${suffix}`);
+    if (saved) {
+      const parsed = JSON.parse(saved);
+      if (Array.isArray(parsed)) return parsed.filter(item => !isLegacyDemoSeed(item));
+    }
+  } catch {
+    // ignore unreadable storage
+  }
+  return [];
+};
+
+// Lit les données enregistrées dans ce navigateur (mode local, ou import vers le compte en ligne)
+export const loadLocalData = (): AppData => ({
+  products: readLocalArray(LOCAL_SUFFIX.products).map(p => ({
+    ...p,
+    costPrice: Number(p.costPrice ?? p.unitPrice ?? 50),
+    unitPrice: Number(p.unitPrice ?? p.costPrice ?? 50),
+    minimumStock: Number(p.minimumStock ?? 3),
+  })),
+  variants: readLocalArray(LOCAL_SUFFIX.variants).map(v => ({
+    ...v,
+    quantity: Math.max(0, Number(v.quantity) || 0),
+  })),
+  customers: readLocalArray(LOCAL_SUFFIX.customers),
+  designs: readLocalArray(LOCAL_SUFFIX.designs).map(d => ({
+    ...d,
+    // Avoid duplicate base64 strings in both fileUrl and thumbnailUrl
+    thumbnailUrl: d.thumbnailUrl === d.fileUrl ? undefined : d.thumbnailUrl,
+  })),
+  orders: readLocalArray(LOCAL_SUFFIX.orders),
+  payments: readLocalArray(LOCAL_SUFFIX.payments),
+  stockMovements: readLocalArray(LOCAL_SUFFIX.stockMovements),
+  expenses: readLocalArray(LOCAL_SUFFIX.expenses),
+});
+
+export const clearLocalData = (): void => {
+  Object.values(LOCAL_SUFFIX).forEach(suffix => {
+    try {
+      localStorage.removeItem(`${STORAGE_KEY}_${suffix}`);
+    } catch {
+      // ignore
+    }
+  });
+};
+
+export interface CloudSession {
+  userId: string;
+  email: string;
+  initialData: AppData; // données affichées au démarrage
+  syncedData: AppData; // données déjà présentes dans la base
+  signOut: () => void;
+}
+
 interface AppContextType {
   // Theme
   theme: 'light' | 'dark';
   toggleTheme: () => void;
+
+  // Compte en ligne
+  syncStatus: SyncStatus;
+  accountEmail: string | null;
+  signOut: () => void;
 
   // Data
   products: Product[];
@@ -210,7 +272,7 @@ interface AppContextType {
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
 
-export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => {
+export const AppProvider: React.FC<{ children: ReactNode; cloud?: CloudSession }> = ({ children, cloud }) => {
   // Theme state
   const [theme, setTheme] = useState<'light' | 'dark'>(() => {
     try {
@@ -238,144 +300,17 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setTheme(prev => (prev === 'light' ? 'dark' : 'light'));
   };
 
-  // Load persisted state and automatically strip any legacy 2025 demo seed data
-  const [products, setProducts] = useState<Product[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_products`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed
-            .filter(p => !isLegacyDemoSeed(p))
-            .map(p => ({
-              ...p,
-              costPrice: Number(p.costPrice ?? p.unitPrice ?? 50),
-              unitPrice: Number(p.unitPrice ?? p.costPrice ?? 50),
-              minimumStock: Number(p.minimumStock ?? 3),
-            }));
-        }
-      }
-      return INITIAL_PRODUCTS;
-    } catch {
-      return INITIAL_PRODUCTS;
-    }
-  });
+  // Données de départ : celles du compte en ligne (mode Supabase) ou celles du navigateur (mode local)
+  const [initialData] = useState<AppData>(() => cloud?.initialData ?? loadLocalData());
 
-  const [variants, setVariants] = useState<ProductVariant[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_variants`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed
-            .filter(v => !isLegacyDemoSeed(v))
-            .map(v => ({
-              ...v,
-              quantity: Math.max(0, Number(v.quantity) || 0),
-            }));
-        }
-      }
-      return INITIAL_VARIANTS;
-    } catch {
-      return INITIAL_VARIANTS;
-    }
-  });
-
-  const [customers, setCustomers] = useState<Customer[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_customers`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(c => !isLegacyDemoSeed(c));
-        }
-      }
-      return INITIAL_CUSTOMERS;
-    } catch {
-      return INITIAL_CUSTOMERS;
-    }
-  });
-
-  const [designs, setDesigns] = useState<Design[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_designs`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed
-            .filter(d => !isLegacyDemoSeed(d))
-            .map(d => ({
-              ...d,
-              // Avoid duplicate base64 strings in both fileUrl and thumbnailUrl
-              thumbnailUrl: d.thumbnailUrl === d.fileUrl ? undefined : d.thumbnailUrl,
-            }));
-        }
-      }
-      return INITIAL_DESIGNS;
-    } catch {
-      return INITIAL_DESIGNS;
-    }
-  });
-
-  const [orders, setOrders] = useState<Order[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_orders`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(o => !isLegacyDemoSeed(o));
-        }
-      }
-      return INITIAL_ORDERS;
-    } catch {
-      return INITIAL_ORDERS;
-    }
-  });
-
-  const [payments, setPayments] = useState<Payment[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_payments`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(p => !isLegacyDemoSeed(p));
-        }
-      }
-      return INITIAL_PAYMENTS;
-    } catch {
-      return INITIAL_PAYMENTS;
-    }
-  });
-
-  const [stockMovements, setStockMovements] = useState<StockMovement[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_stock_movements`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(m => !isLegacyDemoSeed(m));
-        }
-      }
-      return INITIAL_STOCK_MOVEMENTS;
-    } catch {
-      return INITIAL_STOCK_MOVEMENTS;
-    }
-  });
-
-  const [expenses, setExpenses] = useState<Expense[]>(() => {
-    try {
-      const saved = localStorage.getItem(`${STORAGE_KEY}_expenses`);
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        if (Array.isArray(parsed)) {
-          return parsed.filter(e => !isLegacyDemoSeed(e));
-        }
-      }
-      return INITIAL_EXPENSES;
-    } catch {
-      return INITIAL_EXPENSES;
-    }
-  });
+  const [products, setProducts] = useState<Product[]>(initialData.products);
+  const [variants, setVariants] = useState<ProductVariant[]>(initialData.variants);
+  const [customers, setCustomers] = useState<Customer[]>(initialData.customers);
+  const [designs, setDesigns] = useState<Design[]>(initialData.designs);
+  const [orders, setOrders] = useState<Order[]>(initialData.orders);
+  const [payments, setPayments] = useState<Payment[]>(initialData.payments);
+  const [stockMovements, setStockMovements] = useState<StockMovement[]>(initialData.stockMovements);
+  const [expenses, setExpenses] = useState<Expense[]>(initialData.expenses);
 
   // One-time relational integrity cleanup on mount (removes orphan variants/payments/movements)
   useEffect(() => {
@@ -446,20 +381,32 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
 
   const hideToast = () => setToast(null);
 
-  // Safe Persistence effects
+  // Persistance : Supabase quand un compte est connecté, sinon localStorage
+  const isCloud = Boolean(cloud);
+
+  const syncStatus = useCloudSync(
+    cloud?.userId ?? null,
+    { products, variants, customers, designs, orders, payments, stockMovements, expenses },
+    cloud?.syncedData ?? null
+  );
+
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_products`, products);
   }, [products]);
 
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_variants`, variants);
   }, [variants]);
 
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_customers`, customers);
   }, [customers]);
 
   useEffect(() => {
+    if (isCloud) return;
     const savedOk = safeSaveToStorage(`${STORAGE_KEY}_designs`, designs);
     if (!savedOk) {
       // Fallback: strip redundant thumbnailUrl if storage quota is tight
@@ -469,18 +416,22 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
   }, [designs]);
 
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_orders`, orders);
   }, [orders]);
 
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_payments`, payments);
   }, [payments]);
 
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_stock_movements`, stockMovements);
   }, [stockMovements]);
 
   useEffect(() => {
+    if (isCloud) return;
     safeSaveToStorage(`${STORAGE_KEY}_expenses`, expenses);
   }, [expenses]);
 
@@ -1587,14 +1538,7 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
     setPayments([]);
     setStockMovements([]);
     setExpenses([]);
-    localStorage.removeItem(`${STORAGE_KEY}_products`);
-    localStorage.removeItem(`${STORAGE_KEY}_variants`);
-    localStorage.removeItem(`${STORAGE_KEY}_customers`);
-    localStorage.removeItem(`${STORAGE_KEY}_designs`);
-    localStorage.removeItem(`${STORAGE_KEY}_orders`);
-    localStorage.removeItem(`${STORAGE_KEY}_payments`);
-    localStorage.removeItem(`${STORAGE_KEY}_stock_movements`);
-    localStorage.removeItem(`${STORAGE_KEY}_expenses`);
+    if (!isCloud) clearLocalData();
     showToast('Toutes les données ont été réinitialisées à zéro.', 'warn');
   };
 
@@ -1618,6 +1562,9 @@ export const AppProvider: React.FC<{ children: ReactNode }> = ({ children }) => 
       value={{
         theme,
         toggleTheme,
+        syncStatus,
+        accountEmail: cloud?.email ?? null,
+        signOut: cloud?.signOut ?? (() => {}),
         products,
         variants,
         customers,

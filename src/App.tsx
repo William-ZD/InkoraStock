@@ -23,6 +23,7 @@ import { PaymentsView } from './components/payments/PaymentsView';
 import { PaymentAddModal } from './components/payments/PaymentAddModal';
 import { MovementsView } from './components/movements/MovementsView';
 import { ArchivesView } from './components/archives/ArchivesView';
+import { AuthGate } from './components/auth/AuthGate';
 
 const MainLayout: React.FC = () => {
   const { activeTab } = useApp();
@@ -70,8 +71,12 @@ const MainLayout: React.FC = () => {
 
 export default function App() {
   return (
-    <AppProvider>
-      <MainLayout />
-    </AppProvider>
+    <AuthGate>
+      {cloud => (
+        <AppProvider key={cloud?.userId ?? 'local'} cloud={cloud}>
+          <MainLayout />
+        </AppProvider>
+      )}
+    </AuthGate>
   );
 }

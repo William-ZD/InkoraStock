@@ -11,6 +11,10 @@ import {
   Sun,
   Moon,
   Receipt,
+  Cloud,
+  CloudOff,
+  Loader2,
+  LogOut,
 } from 'lucide-react';
 import { useApp } from '../../context/AppContext';
 
@@ -27,6 +31,9 @@ export const Header: React.FC = () => {
     setIsExpenseModalOpen,
     resetToSampleData,
     exportDataJson,
+    syncStatus,
+    accountEmail,
+    signOut,
   } = useApp();
 
   const [copied, setCopied] = useState(false);
@@ -106,6 +113,44 @@ export const Header: React.FC = () => {
 
         <div className="h-4 w-px bg-zinc-200 dark:bg-zinc-800 mx-1" />
 
+        {/* Online save status */}
+        {syncStatus === 'saved' && (
+          <span
+            className="hidden md:flex items-center gap-1 text-[11px] text-emerald-600 dark:text-emerald-400 px-1.5"
+            title="Toutes les données sont enregistrées en ligne"
+          >
+            <Cloud className="w-3.5 h-3.5" />
+            <span>Enregistré</span>
+          </span>
+        )}
+        {syncStatus === 'saving' && (
+          <span
+            className="hidden md:flex items-center gap-1 text-[11px] text-zinc-500 dark:text-zinc-400 px-1.5"
+            title="Enregistrement en ligne en cours"
+          >
+            <Loader2 className="w-3.5 h-3.5 animate-spin" />
+            <span>Enregistrement…</span>
+          </span>
+        )}
+        {syncStatus === 'error' && (
+          <span
+            className="flex items-center gap-1 text-[11px] font-medium text-red-600 dark:text-red-400 px-1.5"
+            title="La sauvegarde en ligne a échoué. Nouvel essai automatique toutes les 5 secondes. Ne fermez pas l'onglet."
+          >
+            <CloudOff className="w-3.5 h-3.5" />
+            <span>Non enregistré</span>
+          </span>
+        )}
+        {syncStatus === 'local' && (
+          <span
+            className="hidden md:flex items-center gap-1 text-[11px] text-amber-600 dark:text-amber-400 px-1.5"
+            title="Mode local : les données restent uniquement dans ce navigateur"
+          >
+            <CloudOff className="w-3.5 h-3.5" />
+            <span>Local</span>
+          </span>
+        )}
+
         {/* DARK / LIGHT THEME TOGGLE BUTTON */}
         <button
           onClick={toggleTheme}
@@ -151,6 +196,16 @@ export const Header: React.FC = () => {
             title="Réinitialiser avec les données exemples"
           >
             <RotateCcw className="w-4 h-4" />
+          </button>
+        )}
+
+        {accountEmail && (
+          <button
+            onClick={signOut}
+            className="p-1.5 text-zinc-400 hover:text-zinc-700 dark:hover:text-zinc-200 hover:bg-zinc-100 dark:hover:bg-zinc-800 rounded-md transition-colors cursor-pointer"
+            title={`Se déconnecter (${accountEmail})`}
+          >
+            <LogOut className="w-4 h-4" />
           </button>
         )}
       </div>
