@@ -1,0 +1,6 @@
+{
+  "name": "Atelier Custom — Gestion & Stock",
+  "description": "Application intuitive et épurée de gestion des vêtements, variantes, stock, clients, designs, commandes et paiements.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
